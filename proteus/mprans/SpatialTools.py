@@ -948,9 +948,9 @@ class Tank3DwithCaisson(ShapeRANS):
         y0, y1 = y-0.5*W, y+0.5*W
         z0, z1 = z-0.5*H, z+0.5*H
         # caisson dimensions
-        xC0, xC1 = caissonCoords[0]-0.5*self.caissonDim[0], caissonCoords[0]+0.5*self.caissonDim[0]
-        yC0, yC1 = caissonCoords[1]-0.5*self.caissonDim[1], caissonCoords[1]+0.5*self.caissonDim[1]
-        zC0, zC1 = 0.0, caissonCoords[2]+0.5*self.caissonDim[2]
+        xC0, xC1 = self.caissonCoords[0]-0.5*self.caissonDim[0], self.caissonCoords[0]+0.5*self.caissonDim[0]
+        yC0, yC1 = self.caissonCoords[1]-0.5*self.caissonDim[1], self.caissonCoords[1]+0.5*self.caissonDim[1]
+        zC0, zC1 = 0.0, self.caissonCoords[2]+0.5*self.caissonDim[2]
         # ---------------------------------------------
         # vertices, facets and regions for the caisson
         # ---------------------------------------------
@@ -969,14 +969,14 @@ class Tank3DwithCaisson(ShapeRANS):
                              bt['z+'], # top facet
                             ]
         caissonVolumes = [[ [0,1,2,3,4] ]]
-        caissonRegions = [ [caissonCoords[0], caissonCoords[1], caissonCoords[2]] ]
+        caissonRegions = [ [self.caissonCoords[0], self.caissonCoords[1], self.caissonCoords[2]] ]
         caissonRegionFlags = [1]
         caissonRegionIndice = {'caisson': 0}
         nCvert = len(caissonVertices)
         nCface = len(caissonFacets)
         nCvolu = len(caissonVolumes[0][0])
         nCregi = len(caissonRegions)
-        caissonHoles = caissonCoords
+        caissonHoles = self.caissonCoords
         # ---------------------------------------------
         # vertices, facets and regions for the tank
         # ---------------------------------------------
@@ -1110,7 +1110,7 @@ class Tank3DwithCaisson(ShapeRANS):
         self.volumes = np.array(self.volumes) 
         self.regions = np.array(self.regions) 
         self.regionFlags = np.array(self.regionFlags)
-        self.holes = caissonHoles
+        self.holes = np.array([caissonHoles])
 
 
 class Tank2D(ShapeRANS):
