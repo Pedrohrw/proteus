@@ -824,6 +824,295 @@ class Tank3D(ShapeRANS):
                                                      smoothing=smoothing)
 
 
+class Tank3DwithCaisson(ShapeRANS):
+    """
+    Class to create a 3D tank (cuboidal shape) with a caisson shape at the bottom.
+    This shape is meant to work with BodyDynamics module.
+
+    Parameters
+    ----------
+    domain: proteus.Domain.D_base
+        Domain class instance that hold all the geometrical informations and
+        boundary conditions of the shape.
+    dim: Optional[array_like]
+        Dimensions of the cuboid.
+    coords: Optional[array_like]
+        Coordinates of the centroid of the shape.
+    caissonDim: Optional[array_like]
+        Dimensions of the cuboid shape for caisson.
+    caissonCoords: Optional[array_like]
+        Coordinates of the centroid of the caisson.
+    from_0: Optional[bool]
+        If True (default), the tank extends from the origin to postive x, y, z
+    """
+    count = 0
+
+    def __init__(self, domain, dim=(0., 0., 0.), coords=None, from_0=True,
+                 caissonDim=(0., 0., 0.), caissonCoords=None,
+                ):
+        super(Tank3DwithCaisson, self).__init__(domain, nd=3)
+        self.__class__.count += 1
+        self.name = "tank3dwithcaisson" + str(self.__class__.count)
+        self.from_0 = from_0
+        self.caissonDim = caissonDim
+        if coords is None:
+            self.coords = np.array(dim)/2.
+        else:
+            self.coords = coords
+            self.from_0 = False
+        if caissonCoords is None:
+            # caisson placed at the bottom of the tank
+            self.caissonCoords = np.array([self.coords[0],
+                                           self.coords[1],
+                                           self.caissonDim[2]/2.,
+                                         ])
+        else:
+            self.caissonCoords = caissonCoords
+        self.holes = None
+        self.boundaryTags = {'z-': 1,
+                             'x-': 2,
+                             'y+': 3,
+                             'x+': 4,
+                             'y-': 5,
+                             'z+': 6,
+                             'sponge': 7,
+                             'wall': 8}
+        self.b_or = np.array([[0.,  0., -1.],
+                              [-1., 0.,  0.],
+                              [0.,  1.,  0.],
+                              [1.,  0.,  0.],
+                              [0., -1.,  0.],
+                              [0.,  0.,  1.]])
+        self.BC = {'z-': self.BC_class(shape=self, name='z-',
+                                       b_or=self.b_or, b_i=0),
+                   'x-': self.BC_class(shape=self, name='x-',
+                                       b_or=self.b_or, b_i=1),
+                   'y+': self.BC_class(shape=self, name='y+',
+                                       b_or=self.b_or, b_i=2),
+                   'x+': self.BC_class(shape=self, name='x+',
+                                       b_or=self.b_or, b_i=3),
+                   'y-': self.BC_class(shape=self, name='y+',
+                                       b_or=self.b_or, b_i=4),
+                   'z+': self.BC_class(shape=self, name='z+',
+                                       b_or=self.b_or, b_i=5),
+                   'sponge': self.BC_class(shape=self, name='sponge'),
+                   'wall': self.BC_class(shape=self, name='wall')}
+        self.BC_list = [self.BC['z-'],
+                        self.BC['x-'],
+                        self.BC['y+'],
+                        self.BC['x+'],
+                        self.BC['y+'],
+                        self.BC['z+'],
+                        self.BC['sponge'],
+                        self.BC['wall']]
+        # self.BC = BCContainer(self.BC_dict)
+        for i in range(6):
+            self.BC_list[i].setTank()
+        self.barycenter = np.array([0., 0., 0.])
+        self.spongeLayers = {'y+': None, 'y-': None, 'x+': None, 'x-': None}
+        self.setDimensions(dim)
+
+    def setSponge(self, x_p=None, x_n=None):
+        """
+        Set length of sponge layers of the tank (used for wave absorption or
+        generation zones).
+        (!) Sponge layers expand outwards.
+
+        Parameters
+        ----------
+        x_p: Optional[float]
+            length of sponge layer in +x direction.
+        x_n: Optional[float]
+            length of sponge layer in -x direction.
+        """
+        self.spongeLayers['x+'] = x_p
+        self.spongeLayers['x-'] = x_n
+
+    def setDimensions(self, dim):
+        """
+        Set dimension of the tank
+        Parameters
+        ----------
+        dim: array_like
+            dimensions of the tank (excluding sponge layers), array of length 3.
+        """
+        L, W, H = dim
+        self.dim = dim
+        if self.from_0 is True:
+            x, y, z = L/2., W/2., H/2.
+        else:
+            x, y, z = self.coords
+        self.coords = [x, y, z]
+        # tank dimensions
+        x0, x1 = x-0.5*L, x+0.5*L
+        y0, y1 = y-0.5*W, y+0.5*W
+        z0, z1 = z-0.5*H, z+0.5*H
+        # caisson dimensions
+        xC0, xC1 = caissonCoords[0]-0.5*self.caissonDim[0], caissonCoords[0]+0.5*self.caissonDim[0]
+        yC0, yC1 = caissonCoords[1]-0.5*self.caissonDim[1], caissonCoords[1]+0.5*self.caissonDim[1]
+        zC0, zC1 = 0.0, caissonCoords[2]+0.5*self.caissonDim[2]
+        # ---------------------------------------------
+        # vertices, facets and regions for the caisson
+        # ---------------------------------------------
+        bt = self.boundaryTags
+        x_p = self.spongeLayers['x+'] or 0.
+        x_n = self.spongeLayers['x-'] or 0.
+        caissonVertices = [ [xC0, yC0, zC0], [xC0, yC1, zC0], [xC1, yC1, zC0], [xC1, yC0, zC0], # bottom vertices
+                            [xC0, yC0, zC1], [xC0, yC1, zC1], [xC1, yC1, zC1], [xC1, yC0, zC1],  # top vertices   
+                          ]
+        caissonVertexFlags = [ bt['z-'], bt['z-'], bt['z-'], bt['z-'],
+                               bt['z+'], bt['z+'], bt['z+'], bt['z+'] ]
+        caissonFacets = [ [[0,1,5,4]], [[1,2,6,5]], [[2,3,7,6]], [[3,0,4,7]], # lateral facets
+                          [[4,5,6,7]], # top facet
+                        ]
+        caissonFacetFlags = [bt['x-'], bt['y+'], bt['x+'], bt['y-'], # lateral facets
+                             bt['z+'], # top facet
+                            ]
+        caissonVolumes = [[ [0,1,2,3,4] ]]
+        caissonRegions = [ [caissonCoords[0], caissonCoords[1], caissonCoords[2]] ]
+        caissonRegionFlags = [1]
+        caissonRegionIndice = {'caisson': 0}
+        nCvert = len(caissonVertices)
+        nCface = len(caissonFacets)
+        nCvolu = len(caissonVolumes[0][0])
+        nCregi = len(caissonRegions)
+        caissonHoles = caissonCoords
+        # ---------------------------------------------
+        # vertices, facets and regions for the tank
+        # ---------------------------------------------
+        tankVertices = [ [x0, y0, z0], [x0, y1, z0], [x1, y1, z0], [x1, y0, z0], # bottom vertices
+                         [x0, y0, z1], [x0, y1, z1], [x1, y1, z1], [x1, y0, z1],  # top vertices   
+                       ]
+        tankVertexFlags = [ bt['z-'], bt['z-'], bt['z-'], bt['z-'],
+                               bt['z+'], bt['z+'], bt['z+'], bt['z+'] ]
+        tankFacets = [ [[nCvert+0,nCvert+1,nCvert+2,nCvert+3], [0,1,2,3] ], # bottom facet: the first is the basis one, the second is a hole
+                       [[nCvert+0,nCvert+1,nCvert+5,nCvert+4]],         # lateral facet
+                       [[nCvert+1,nCvert+2,nCvert+6,nCvert+5]],         # lateral facet
+                       [[nCvert+2,nCvert+3,nCvert+7,nCvert+6]],         # lateral facet
+                       [[nCvert+3,nCvert+0,nCvert+4,nCvert+7]],         # lateral facet
+                       [[nCvert+4,nCvert+5,nCvert+6,nCvert+7]],         # top facet
+                     ]
+        tankFacetFlags = [bt['z-'], # bottom facet
+                          bt['x-'], bt['y+'], bt['x+'], bt['y-'], # lateral facets
+                          bt['z+'], # top facet
+                         ]
+        tankVolumes = [[ [nCvolu+0,nCvolu+1,nCvolu+2,nCvolu+3,nCvolu+4,nCvolu+5] ]]
+        tankRegions = [ [0.95*x1, 0.95*y1, 0.95*z1] ]
+        tankRegionFlags = [2]
+        tankRegionIndice = {'tank': 1}
+        nTvert = len(tankVertices)
+        nTface = len(tankFacets)
+        nTvolu = len(tankVolumes[0][0])
+        nTregi = len(tankRegions)
+        # ------------------------------------------------------
+        # vertices, facets and regions for the generation sponge
+        # ------------------------------------------------------
+        if self.spongeLayers['x-']:
+            nVe = nCvert + nTvert
+            nFa = nCface + nTface
+            nVo = nCvolu + nTvolu
+            nRe = nCregi + nTregi
+            genVertices = [ [x0-x_n, y0, z0], [x0-x_n, y1, z0],  # bottom vertices
+                            [x0-x_n, y1, z1], [x0-x_n, y0, z1],  # top vertices   
+                           ]
+            genVertexFlags = [ bt['z-'], bt['z-'], 
+                               bt['z+'], bt['z+'] ]
+            genFacets = [ [[nVe+0,nVe+1,nCvert+1,nCvert+0]], # bottom facet
+                          [[nCvert+0,nVe+0,nVe+3,nCvert+4]], # lateral facet
+                          [[nVe+0,nVe+1,nVe+2,nVe+3]],       # lateral facet
+                          [[nCvert+1,nVe+1,nVe+2,nCvert+5]], # lateral facet
+                          [[nCvert+4,nVe+3,nVe+2,nCvert+5]], # top facet
+                         ]
+            genFacetFlags = [bt['z-'], # bottom facet
+                             bt['y-'], bt['x-'], bt['y+'], # lateral facets
+                             bt['z+'], # top facet
+                             ]
+            genVolumes = [[ [nVo+0,nVo+1,nVo+2,nVo+3,nVo+4] ]]
+            genRegions = [ [x0-0.95*x_n, 0.95*y1, 0.95*z1] ]
+            genRegionFlags = [3]
+            genRegionIndice = {'generation': 2}
+            nGvert = len(genVertices)
+            nGface = len(genFacets)
+            nGvolu = len(genVolumes[0][0])
+            nGregi = len(genRegions)
+        # ------------------------------------------------------
+        # vertices, facets and regions for the absorption sponge
+        # ------------------------------------------------------
+        if self.spongeLayers['x+']:
+            nVe += nGvert 
+            nFa += nGface 
+            nVo += nGvolu 
+            nRe += nGregi 
+            absVertices = [ [x1+x_p, y0, z0], [x1+x_p, y1, z0],  # bottom vertices
+                            [x1+x_p, y1, z1], [x1+x_p, y0, z1],  # top vertices   
+                           ]
+            absVertexFlags = [ bt['z-'], bt['z-'], 
+                               bt['z+'], bt['z+'] ]
+            absFacets = [ [[nVe+0,nVe+1,nCvert+2,nCvert+3]], # bottom facet
+                          [[nCvert+3,nVe+0,nVe+3,nCvert+7]], # lateral facet
+                          [[nVe+0,nVe+1,nVe+2,nVe+3]],       # lateral facet
+                          [[nCvert+2,nVe+1,nVe+2,nCvert+6]], # lateral facet
+                          [[nCvert+7,nVe+3,nVe+2,nCvert+6]], # top facet
+                         ]
+            absFacetFlags = [bt['z-'], # bottom facet
+                             bt['y-'], bt['x+'], bt['y+'], # lateral facets
+                             bt['z+'], # top facet
+                             ]
+            absVolumes = [[ [nVo+0,nVo+1,nVo+2,nVo+3,nVo+4] ]]
+            absRegions = [ [x1+0.95*x_p, 0.95*y1, 0.95*z1] ]
+            if self.spongeLayers['x-']:
+                absRegionIndice = {'absorption': 3}
+                absRegionFlags = [3]
+            else: 
+                absRegionIndice = {'absorption': 2}
+                absRegionFlags = [2]
+            nAvert = len(absVertices)
+            nAface = len(absFacets)
+            nAvolu = len(absVolumes[0][0])
+            nAregi = len(absRegions)
+        # ------------------------------------------------------
+        # assembling all the shapes
+        # ------------------------------------------------------ 
+        self.vertices = caissonVertices + tankVertices   
+        self.vertexFlags = caissonVertexFlags + tankVertexFlags
+        self.segments = []
+        self.segmentFlags = []
+        self.facets = caissonFacets + tankFacets
+        self.facetFlags = caissonFacetFlags + tankFacetFlags
+        self.volumes = caissonVolumes + tankVolumes
+        self.regions = caissonRegions + tankRegions
+        self.regionFlags = caissonRegionFlags + tankRegionFlags
+        if self.spongeLayers['x-']:
+            self.vertices += genVertices
+            self.vertexFlags += genVertexFlags
+            self.facets += genFacets
+            self.facetFlags += genFacetFlags
+            self.volumes += genVolumes
+            self.regions += genRegions
+            self.regionFlags += genRegionFlags
+        if self.spongeLayers['x+']:
+            self.vertices += absVertices
+            self.vertexFlags += absVertexFlags
+            self.facets += absFacets
+            self.facetFlags += absFacetFlags
+            self.volumes += absVolumes
+            self.regions += absRegions
+            self.regionFlags += absRegionFlags
+        # ------------------------------------------------------
+        # converting all the elements in array
+        # ------------------------------------------------------
+        self.vertices = np.array(self.vertices)   
+        self.vertexFlags = np.array(self.vertexFlags) 
+        self.segments = np.array(self.segments) 
+        self.segmentFlags = np.array(self.segmentFlags) 
+        self.facets = np.array(self.facets) 
+        self.facetFlags = np.array(self.facetFlags) 
+        self.volumes = np.array(self.volumes) 
+        self.regions = np.array(self.regions) 
+        self.regionFlags = np.array(self.regionFlags)
+        self.holes = caissonHoles
+
+
 class Tank2D(ShapeRANS):
     """
     Class to create a 2D tank (rectangular shape).
