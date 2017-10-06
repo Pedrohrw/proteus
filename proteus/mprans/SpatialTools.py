@@ -1112,6 +1112,159 @@ class Tank3DwithCaisson(ShapeRANS):
         self.regionFlags = np.array(self.regionFlags)
         self.holes = np.array([caissonHoles])
 
+    def setAbsorptionZones(self, dragAlpha,allSponge=False,
+                           y_n=False, y_p=False,
+                           x_n=False, x_p=False, 
+                           dragBeta=0., porosity=1.):
+        """
+        Sets regions (x+, x-, y+, y-) to absorption zones
+
+        Parameters
+        ----------
+        dragAlpha: float
+            Relaxation zone coefficient.
+        allSponge: bool
+            If True, all sponge layers are converted to absorption zones.
+        x_p: bool
+            If True, x+ region is converted to absorption zone.
+        x_n: bool
+            If True, x- region is converted to absorption zone.
+        y_p: bool
+            If True, y+ region is converted to absorption zone.
+        y_n: bool
+            If True, y- region is converted to absorption zone.
+        dragBeta: Optional[float]
+            Relaxation zone coefficient.
+        porosity: Optional[float]
+            Relaxation zone coefficient.
+        """
+        self.abs_zones = {'y-': y_n, 'y+': y_p, 'x-': x_n, 'x+': x_p}
+        if allSponge is True:
+            for key in self.abs_zones:
+                self.abs_zones[key] = True
+        waves = None
+        wind_speed = np.array([0., 0., 0.])
+        sl = self.spongeLayers
+        for key, value in self.abs_zones.iteritems():
+            if value is True:
+                self._attachAuxiliaryVariable('RelaxZones')
+                ind = self.regionIndice[key]
+                flag = self.regionFlags[ind]
+                epsFact_solid = self.spongeLayers[key]/2.
+                center = np.array(self.coords)
+                zeros_to_append = 3-len(center)
+                if zeros_to_append:
+                    for i in range(zeros_to_append):
+                        center = np.append(center, [0])
+                if key == 'x-':
+                    center[0] += -0.5*self.dim[0]-0.5*sl['x-']
+                    orientation = np.array([1., 0., 0.])
+                elif key == 'x+':
+                    center[0] += +0.5*self.dim[0]+0.5*sl['x+']
+                    orientation = np.array([-1., 0., 0.])
+                elif key == 'y-':
+                    center[1] += -0.5*self.dim[1]-0.5*sl['y-']
+                    orientation = np.array([0., 1., 0.])
+                elif key == 'y+':
+                    center[1] += +0.5*self.dim[1]+0.5*sl['y+']
+                    orientation = np.array([0., -1., 0.])
+                self.zones[flag] = bc.RelaxationZone(shape=self,
+                                                     zone_type='absorption',
+                                                     orientation=orientation,
+                                                     center=center,
+                                                     waves=waves,
+                                                     wind_speed=wind_speed,
+                                                     epsFact_solid=epsFact_solid,
+                                                     dragAlpha=dragAlpha,
+                                                     dragBeta=dragBeta,
+                                                     porosity=porosity)
+
+    def setGenerationZones(self,  dragAlpha, smoothing, waves=None,
+                           wind_speed=(0. ,0., 0.), allSponge=False, y_n=False,
+                           y_p=False, x_n=False, x_p=False, dragBeta=0.,
+                           porosity=1.):
+        """
+        Sets regions (x+, x-, y+, y-) to generation zones
+
+        Parameters
+        ----------
+        dragAlpha: float
+            Relaxation zone coefficient.
+        smoothing: float
+            Smoothing distance (typically 3.*he)
+        waves: proteus.WaveTools
+            Class instance of wave generated from proteus.WaveTools.
+        wind_speed: Optional[array_like]
+            Speed of wind in generation zone (default is (0., 0., 0.))
+        allSponge: bool
+            If True, all sponge layers are converted to generation zones.
+        x_p: bool
+            If True, x+ region is converted to generation zone.
+        x_n: bool
+            If True, x- region is converted to generation zone.
+        y_p: bool
+            If True, y+ region is converted to generation zone.
+        y_n: bool
+            If True, y- region is converted to generation zone.
+        dragBeta: Optional[float]
+            Relaxation zone coefficient.
+        porosity: Optional[float]
+            Relaxation zone coefficient.
+        """
+        self.abs_zones = {'y-': y_n, 'y+': y_p, 'x-': x_n, 'x+': x_p}
+        if allSponge is True:
+            for key in self.abs_zones:
+                self.abs_zones[key] = True
+        waves = waves
+        wind_speed = np.array(wind_speed)
+        sl = self.spongeLayers
+        for key, value in self.abs_zones.iteritems():
+            if value is True:
+                self._attachAuxiliaryVariable('RelaxZones')
+                ind = self.regionIndice[key]
+                flag = self.regionFlags[ind]
+                epsFact_solid = self.spongeLayers[key]/2.
+                center = np.array(self.coords)
+                zeros_to_append = 3-len(center)
+                if zeros_to_append:
+                    for i in range(zeros_to_append):
+                        center = np.append(center, [0])
+                if key == 'x-':
+                    center[0] += -0.5*self.dim[0]-sl['x-']/2.
+                    orientation = np.array([1., 0., 0.])
+                    self.BC['x-'].setUnsteadyTwoPhaseVelocityInlet(wave=waves,
+                                                                   wind_speed=wind_speed,
+                                                                   smoothing=smoothing)
+                elif key == 'x+':
+                    center[0] += +0.5*self.dim[0]+sl['x+']/2.
+                    orientation = np.array([-1., 0., 0.])
+                    self.BC['x+'].setUnsteadyTwoPhaseVelocityInlet(wave=waves,
+                                                                   wind_speed=wind_speed,
+                                                                   smoothing=smoothing)
+                elif key == 'y-':
+                    center[1] += -0.5*self.dim[1]-sl['y-']/2.
+                    orientation = np.array([0., 1., 0.])
+                    self.BC['y-'].setUnsteadyTwoPhaseVelocityInlet(wave=waves,
+                                                                   wind_speed=wind_speed,
+                                                                   smoothing=smoothing)
+                elif key == 'y+':
+                    center[1] += +0.5*self.dim[1]+sl['y+']/2.
+                    orientation = np.array([0., -1., 0.])
+                    self.BC['y+'].setUnsteadyTwoPhaseVelocityInlet(wave=waves,
+                                                                   wind_speed=wind_speed,
+                                                                   smoothing=smoothing)
+                self.zones[flag] = bc.RelaxationZone(shape=self,
+                                                     zone_type='generation',
+                                                     orientation=orientation,
+                                                     center=center,
+                                                     waves=waves,
+                                                     wind_speed=wind_speed,
+                                                     epsFact_solid=epsFact_solid,
+                                                     dragAlpha=dragAlpha,
+                                                     dragBeta=dragBeta,
+                                                     porosity=porosity,
+                                                     smoothing=smoothing)
+
 
 class Tank2D(ShapeRANS):
     """
