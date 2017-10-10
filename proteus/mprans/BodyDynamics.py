@@ -275,23 +275,15 @@ class RigidBody(AuxiliaryVariables.AV_base, object):
             Fx, Fy, Fz = self.F
             mass = self.mass
             # initial condition
-            ux0 = self.last_position[0] - self.init_barycenter[0]      # x-axis displacement
-            uy0 = self.last_position[1] - self.init_barycenter[1]      # y-axis displacement
-            uz0 = self.last_position[2] - self.init_barycenter[2]      # z-axis displacement
-            vx0 = self.last_velocity[0]                                # x-axis velocity
-            vy0 = self.last_velocity[1]                                # y-axis velocity
-            vz0 = self.last_velocity[2]                                # z-axis velocity
-            ax0 = (Fx - Cx*vx0 - Kx*ux0) / mass                        # x-axis acceleration
-            ay0 = (Fy - Cy*vy0 - Ky*uy0) / mass                        # y-axis acceleration
-            az0 = (Fz - Cz*vz0 - Kz*uz0) / mass                        # z-axis acceleration
+            ux0,uy0,uz0 = self.last_position - self.init_barycenter                                           # displacements
+            vx0,vy0,vz0 = self.last_velocity                                                                  # velocities
+            ax0,ay0,az0 = (Fx - Cx*vx0 - Kx*ux0)/mass,(Fy - Cy*vy0 - Ky*uy0)/mass,(Fz - Cz*vz0 - Kz*uz0)/mass # acceleration
             # solving numerical scheme
             ux, vx, ax = runge_kutta(u0=ux0, v0=vx0, a0=ax0, dt=dt_sub, substeps=self.substeps, F=Fx, K=Kx, C=Cx, m=mass, velCheck=False)
             uy, vy, ay = runge_kutta(u0=uy0, v0=vy0, a0=ay0, dt=dt_sub, substeps=self.substeps, F=Fy, K=Ky, C=Cy, m=mass, velCheck=False)
             uz, vz, az = runge_kutta(u0=uz0, v0=vz0, a0=az0, dt=dt_sub, substeps=self.substeps, F=Fz, K=Kz, C=Cz, m=mass, velCheck=False)
             # used for storing values of displacements through timesteps
-            self.ux = ux
-            self.uy = uy
-            self.uz = uz
+            self.ux, self.uy, self.uz = ux, uy, uz
             # final values
             self.h[:] = np.array([self.ux - ux0, self.uy - uy0, self.uz - uz0])
             self.velocity = np.array([vx, vy, vz])
@@ -328,17 +320,22 @@ class RigidBody(AuxiliaryVariables.AV_base, object):
             inertia = self.inertia
 
             # initial condition
-            rz0 =  atan2(self.last_rotation[0, 1], self.last_rotation[0, 0])  # angular displacement
-            vrz0 = self.last_ang_vel[2]                             # angular velocity
+            rx0, ry0, rz0 = getEulerAngles(self.last_rotation)      # angular displacement
+            vrx0, vry0, vrz0 = self.last_ang_vel                    # angular velocity
+            arx0 = (Mp[0] - Crot*vrx0 - Krot*rx0) / inertia         # angular acceleration
+            ary0 = (Mp[1] - Crot*vry0 - Krot*ry0) / inertia         # angular acceleration
             arz0 = (Mp[2] - Crot*vrz0 - Krot*rz0) / inertia         # angular acceleration
 
             # solving numerical scheme            
-            rz, vrz, arz = runge_kutta(u0=rz0, v0=vrz0, a0=arz0, dt=dt_sub, substeps=self.substeps, F=Mp[2], K=Krot, C=Crot, m=inertia, velCheck=False)
-
+            if self.scheme == 'Runge_Kutta':
+                rx, vrx, arx = runge_kutta(u0=rx0, v0=vrx0, a0=arx0, dt=dt_sub, substeps=substeps, F=Mp[0], K=Krot, C=Crot, m=inertia, velCheck=False)
+                ry, vry, ary = runge_kutta(u0=ry0, v0=vry0, a0=ary0, dt=dt_sub, substeps=substeps, F=Mp[1], K=Krot, C=Crot, m=inertia, velCheck=False)
+                rz, vrz, arz = runge_kutta(u0=rz0, v0=vrz0, a0=arz0, dt=dt_sub, substeps=substeps, F=Mp[2], K=Krot, C=Crot, m=inertia, velCheck=False)
+            
             # final values
-            self.ang_disp[2] = rz - atan2(self.last_rotation[0, 1], self.last_rotation[0, 0])
-            self.ang_vel[2] = vrz
-            self.ang_acc[2] = arz
+            self.ang_disp = rx-rx0, ry-ry0, rz-rz0  
+            self.ang_vel = vrx, vry, vrz
+            self.ang_acc = arx, ary, arz
             
         return self.ang_disp
 
@@ -1059,32 +1056,40 @@ class CaissonBody(RigidBody):
             # Springs
             Kx = self.Kx
             Ky = self.Ky
+            Kz = self.Kz
             Cx = self.Cx
             Cy = self.Cy
+            Cz = self.Cz
             
             # initial condition on displacement, velocity and acceleration
             ux0 = self.last_uxEl                                                          # x-axis displacement
-            uy0 = self.last_position[1] - self.init_barycenter[1]                         # y-axis displacement            
-            vx0 = self.last_velocity[0]                                                   # x-axis velocity
-            vy0 = self.last_velocity[1]                                                   # y-axis velocity
+            uy0, uz0 = self.last_position[1:] - self.init_barycenter[1:]                  # y-axis and z-axis displacements            
+            vx0, vy0, vz0 = self.last_velocity                                            # velocity
             
 
             # calculation on the vertical direction for frictional force
             # solving numerical scheme
             ay0 = (Fv - Cy*vy0 - Ky*uy0) / mass
+            az0 = (Fv - Cz*vz0 - Kz*uz0) / mass
             if self.scheme == 'Runge_Kutta':
                 uy, vy, ay = runge_kutta(u0=uy0, v0=vy0, a0=ay0,
-                                         dt=dt_sub, substeps=substeps,
-                                         F=Fv, K=Ky, C=Cy, m=mass, velCheck=False)
+                                             dt=dt_sub, substeps=substeps,
+                                             F=Fv, K=Ky, C=Cy, m=mass, velCheck=False)
+                uz, vz, az = runge_kutta(u0=uz0, v0=vz0, a0=az0,
+                                             dt=dt_sub, substeps=substeps,
+                                             F=Fv, K=Kz, C=Cz, m=mass, velCheck=False)
             
             # Frictional force            
-            #self.PL=0.0
-            #self.EL=0.0
             reactionx = -(Kx*ux0)
             reactiony = -(Ky*uy)
-            Ftan = -sign*m*abs(reactiony)
+            reactionz = -(Ky*uz)
+            if nd==2: vertReaction = reactiony
+            if nd==3: vertReaction = reactionz
+            Ftan = -sign*m*abs(vertReaction)
             if Ftan == 0.0:
                 Ftan = -sign*m*abs(Fv)
+
+            # ----- Monodirectional sliding ----- #
 
             # check on the status of the body
             if self.sliding == True:
@@ -1126,20 +1131,15 @@ class CaissonBody(RigidBody):
                 self.sliding = False
 
             # used for storing values of displacements through timesteps
-            self.ux = ux
-            self.uy = uy
-            dx = self.ux - ux0
-            dy = self.uy - uy0
+            self.ux, self.uy, self.uz = ux, uy, uz
+            dx, dy, dz = self.ux - ux0, self.uy - uy0, self.uz - uz0
             self.uxEl = dx*self.EL + self.last_uxEl   # updating elastic displacement
             self.uxPl = dx*self.PL + self.last_uxPl   # updating plastic displacement
 
             # final values
-            self.h[0] = dx 
-            self.h[1] = dy
-            self.velocity[0] = vx
-            self.velocity[1] = vy
-            self.acceleration[0] = ax
-            self.acceleration[1] = ay
+            self.h = dx, dy, dz
+            self.velocity = vx, vy, vz
+            self.acceleration = ax, ay, az
 
 
         #---------------------------------------------------------------
@@ -1220,18 +1220,22 @@ class CaissonBody(RigidBody):
             inertia = self.inertia
 
             # initial condition
-            rz0 =  atan2(self.last_rotation[0, 1], self.last_rotation[0, 0])  # angular displacement
-            vrz0 = self.last_ang_vel[2]                             # angular velocity
+            rx0, ry0, rz0 = getEulerAngles(self.last_rotation)      # angular displacement
+            vrx0, vry0, vrz0 = self.last_ang_vel                    # angular velocity
+            arx0 = (Mp[0] - Crot*vrx0 - Krot*rx0) / inertia         # angular acceleration
+            ary0 = (Mp[1] - Crot*vry0 - Krot*ry0) / inertia         # angular acceleration
             arz0 = (Mp[2] - Crot*vrz0 - Krot*rz0) / inertia         # angular acceleration
 
             # solving numerical scheme
             if self.scheme == 'Runge_Kutta':
+                rx, vrx, arx = runge_kutta(u0=rx0, v0=vrx0, a0=arx0, dt=dt_sub, substeps=substeps, F=Mp[0], K=Krot, C=Crot, m=inertia, velCheck=False)
+                ry, vry, ary = runge_kutta(u0=ry0, v0=vry0, a0=ary0, dt=dt_sub, substeps=substeps, F=Mp[1], K=Krot, C=Crot, m=inertia, velCheck=False)
                 rz, vrz, arz = runge_kutta(u0=rz0, v0=vrz0, a0=arz0, dt=dt_sub, substeps=substeps, F=Mp[2], K=Krot, C=Crot, m=inertia, velCheck=False)
             
             # final values
-            self.ang_disp[2] = rz - atan2(self.last_rotation[0, 1], self.last_rotation[0, 0])
-            self.ang_vel[2] = vrz
-            self.ang_acc[2] = arz
+            self.ang_disp = rx-rx0, ry-ry0, rz-rz0  
+            self.ang_vel = vrx, vry, vrz
+            self.ang_acc = arx, ary, arz
 
 
         #---------------------------------------------------------------
