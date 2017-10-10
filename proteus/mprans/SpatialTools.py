@@ -1300,6 +1300,8 @@ class Tank3DwithCaisson(ShapeRANS):
     def setCaisson(self):
         """
         Set the caisson shape starting from tank object.
+        It is only a dummy shape for passing variables from
+        geometry to the bodydynamics module.
         """
         domain = self.domain
         dim = self.caissonDim
@@ -1313,6 +1315,9 @@ class Tank3DwithCaisson(ShapeRANS):
         self.caisson3D = bd.RigidBody(shape=self.caisson, substeps=20)
         self.caisson3D.It = np.array(self.caisson.It)
         self._attachAuxiliaryVariable(key='RigidBody',auxvar=self.caisson3D)
+        # nC is the number of caissonShapes to delete from the domain
+        nC = 1
+        self.domain.shape_list = self.domain.shape_list[:-nC]
 
 
 class CaissonDynamics(ShapeRANS):
