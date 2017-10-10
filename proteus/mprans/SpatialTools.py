@@ -855,6 +855,7 @@ class Tank3DwithCaisson(ShapeRANS):
         self.name = "tank3dwithcaisson" + str(self.__class__.count)
         self.from_0 = from_0
         self.caissonDim = caissonDim
+        self.domain = domain
         if coords is None:
             self.coords = np.array(dim)/2.
         else:
@@ -876,8 +877,23 @@ class Tank3DwithCaisson(ShapeRANS):
                              'y-': 5,
                              'z+': 6,
                              'sponge': 7,
-                             'wall': 8}
+                             'wall': 8,
+                             'caisson_z-': 9,
+                             'caisson_x-': 10,
+                             'caisson_y+': 11,
+                             'caisson_x+': 12,
+                             'caisson_y-': 13,
+                             'caisson_z+': 14,
+                             }
         self.b_or = np.array([[0.,  0., -1.],
+                              [-1., 0.,  0.],
+                              [0.,  1.,  0.],
+                              [1.,  0.,  0.],
+                              [0., -1.,  0.],
+                              [0.,  0.,  1.],
+                              [0.,  0.,  0.],
+                              [0.,  0.,  0.],
+                              [0.,  0., -1.],
                               [-1., 0.,  0.],
                               [0.,  1.,  0.],
                               [1.,  0.,  0.],
@@ -895,8 +911,23 @@ class Tank3DwithCaisson(ShapeRANS):
                                        b_or=self.b_or, b_i=4),
                    'z+': self.BC_class(shape=self, name='z+',
                                        b_or=self.b_or, b_i=5),
-                   'sponge': self.BC_class(shape=self, name='sponge'),
-                   'wall': self.BC_class(shape=self, name='wall')}
+                   'sponge': self.BC_class(shape=self, name='sponge',
+                                          b_or=self.b_or, b_i=6),
+                   'wall': self.BC_class(shape=self, name='wall',
+                                        b_or=self.b_or, b_i=7),
+                   'caisson_z-': self.BC_class(shape=self, name='caisson_z-',
+                                       b_or=self.b_or, b_i=8),
+                   'caisson_x-': self.BC_class(shape=self, name='caisson_x-',
+                                       b_or=self.b_or, b_i=9),
+                   'caisson_y+': self.BC_class(shape=self, name='caisson_y+',
+                                       b_or=self.b_or, b_i=10),
+                   'caisson_x+': self.BC_class(shape=self, name='caisson_x+',
+                                       b_or=self.b_or, b_i=11),
+                   'caisson_y-': self.BC_class(shape=self, name='caisson_y+',
+                                       b_or=self.b_or, b_i=12),
+                   'caisson_z+': self.BC_class(shape=self, name='caisson_z+',
+                                       b_or=self.b_or, b_i=13),
+                   }
         self.BC_list = [self.BC['z-'],
                         self.BC['x-'],
                         self.BC['y+'],
@@ -904,9 +935,16 @@ class Tank3DwithCaisson(ShapeRANS):
                         self.BC['y+'],
                         self.BC['z+'],
                         self.BC['sponge'],
-                        self.BC['wall']]
+                        self.BC['wall'],
+                        self.BC['caisson_z-'],
+                        self.BC['caisson_x-'],
+                        self.BC['caisson_y+'],
+                        self.BC['caisson_x+'],
+                        self.BC['caisson_y+'],
+                        self.BC['caisson_z+'],
+                        ]
         # self.BC = BCContainer(self.BC_dict)
-        for i in range(6):
+        for i in range(14):
             self.BC_list[i].setTank()
         self.barycenter = np.array([0., 0., 0.])
         self.spongeLayers = {'y+': None, 'y-': None, 'x+': None, 'x-': None}
@@ -961,23 +999,31 @@ class Tank3DwithCaisson(ShapeRANS):
         caissonVertices = [ [xC0, yC0, zC0], [xC0, yC1, zC0], [xC1, yC1, zC0], [xC1, yC0, zC0], # bottom vertices
                             [xC0, yC0, zC1], [xC0, yC1, zC1], [xC1, yC1, zC1], [xC1, yC0, zC1],  # top vertices   
                           ]
-        caissonVertexFlags = [ bt['z-'], bt['z-'], bt['z-'], bt['z-'],
-                               bt['z+'], bt['z+'], bt['z+'], bt['z+'] ]
+        caissonVertexFlags = [ bt['caisson_z-'], bt['caisson_z-'], bt['caisson_z-'], bt['caisson_z-'],
+                               bt['caisson_z+'], bt['caisson_z+'], bt['caisson_z+'], bt['caisson_z+'] ]
         caissonFacets = [ [[0,1,5,4]], [[1,2,6,5]], [[2,3,7,6]], [[3,0,4,7]], # lateral facets
                           [[4,5,6,7]], # top facet
                         ]
-        caissonFacetFlags = [bt['x-'], bt['y+'], bt['x+'], bt['y-'], # lateral facets
-                             bt['z+'], # top facet
+        caissonFacetFlags = [bt['caisson_x-'], bt['caisson_y+'], bt['caisson_x+'], bt['caisson_y-'], # lateral facets
+                             bt['caisson_z+'], # top facet
                             ]
         caissonVolumes = [[ [0,1,2,3,4] ]]
         caissonRegions = [ [self.caissonCoords[0], self.caissonCoords[1], self.caissonCoords[2]] ]
         caissonRegionFlags = [1]
         caissonRegionIndice = {'caisson': 0}
+        regionIndice = {'caisson': 0}
         nCvert = len(caissonVertices)
         nCface = len(caissonFacets)
         nCvolu = len(caissonVolumes[0][0])
         nCregi = len(caissonRegions)
         caissonHoles = self.caissonCoords
+        self.caissonBarycenters = [ [xC0,           0.5*(yC0+yC1), 0.5*(zC0+zC1)], # 1st lateral facet
+                                    [0.5*(xC0+xC1), yC1,           0.5*(zC0+zC1)], # 2nd lateral facet
+                                    [xC1,           0.5*(yC0+yC1), 0.5*(zC0+zC1)], # 3rd lateral facet
+                                    [0.5*(xC0+xC1), yC0,           0.5*(zC0+zC1)], # 4th lateral facet
+                                    [0.5*(xC0+xC1), 0.5*(yC0+yC0), zC1          ], # top facet
+                                  ]
+        self.caissonBarycenterFlags = ['caisson_x-','caisson_y+','caisson_x+','caisson_y-','caisson_z+']
         # ---------------------------------------------
         # vertices, facets and regions for the tank
         # ---------------------------------------------
@@ -1001,10 +1047,12 @@ class Tank3DwithCaisson(ShapeRANS):
         tankRegions = [ [0.95*x1, 0.95*y1, 0.95*z1] ]
         tankRegionFlags = [2]
         tankRegionIndice = {'tank': 1}
+        regionIndice['tank'] = 1
         nTvert = len(tankVertices)
         nTface = len(tankFacets)
         nTvolu = len(tankVolumes[0][0])
         nTregi = len(tankRegions)
+        tankBarycenters = [[0.,0.,0.]]*len(tankFacets)
         # ------------------------------------------------------
         # vertices, facets and regions for the generation sponge
         # ------------------------------------------------------
@@ -1031,11 +1079,13 @@ class Tank3DwithCaisson(ShapeRANS):
             genVolumes = [[ [nVo+0,nVo+1,nVo+2,nVo+3,nVo+4] ]]
             genRegions = [ [x0-0.95*x_n, 0.95*y1, 0.95*z1] ]
             genRegionFlags = [3]
-            genRegionIndice = {'generation': 2}
+            genRegionIndice = {'x-': 2}
+            regionIndice['x-'] = 2
             nGvert = len(genVertices)
             nGface = len(genFacets)
             nGvolu = len(genVolumes[0][0])
             nGregi = len(genRegions)
+            genBarycenters = [[0.,0.,0.]]*len(genFacets)
         # ------------------------------------------------------
         # vertices, facets and regions for the absorption sponge
         # ------------------------------------------------------
@@ -1062,15 +1112,18 @@ class Tank3DwithCaisson(ShapeRANS):
             absVolumes = [[ [nVo+0,nVo+1,nVo+2,nVo+3,nVo+4] ]]
             absRegions = [ [x1+0.95*x_p, 0.95*y1, 0.95*z1] ]
             if self.spongeLayers['x-']:
-                absRegionIndice = {'absorption': 3}
+                absRegionIndice = {'x+': 3}
                 absRegionFlags = [3]
+                regionIndice['x+'] = 3
             else: 
-                absRegionIndice = {'absorption': 2}
+                absRegionIndice = {'x+': 2}
                 absRegionFlags = [2]
+                regionIndice['x+'] = 2
             nAvert = len(absVertices)
             nAface = len(absFacets)
             nAvolu = len(absVolumes[0][0])
             nAregi = len(absRegions)
+            absBarycenters = [[0.,0.,0.]]*len(absFacets)
         # ------------------------------------------------------
         # assembling all the shapes
         # ------------------------------------------------------ 
@@ -1083,6 +1136,8 @@ class Tank3DwithCaisson(ShapeRANS):
         self.volumes = caissonVolumes + tankVolumes
         self.regions = caissonRegions + tankRegions
         self.regionFlags = caissonRegionFlags + tankRegionFlags
+        self.regionIndice = regionIndice
+        #self.barycenter = self.caissonBarycenters + tankBarycenters
         if self.spongeLayers['x-']:
             self.vertices += genVertices
             self.vertexFlags += genVertexFlags
@@ -1091,6 +1146,7 @@ class Tank3DwithCaisson(ShapeRANS):
             self.volumes += genVolumes
             self.regions += genRegions
             self.regionFlags += genRegionFlags
+            #self.barycenter += genBarycenters
         if self.spongeLayers['x+']:
             self.vertices += absVertices
             self.vertexFlags += absVertexFlags
@@ -1099,6 +1155,7 @@ class Tank3DwithCaisson(ShapeRANS):
             self.volumes += absVolumes
             self.regions += absRegions
             self.regionFlags += absRegionFlags
+            #self.barycenter += absBarycenters
         # ------------------------------------------------------
         # converting all the elements in array
         # ------------------------------------------------------
@@ -1112,6 +1169,7 @@ class Tank3DwithCaisson(ShapeRANS):
         self.regions = np.array(self.regions) 
         self.regionFlags = np.array(self.regionFlags)
         self.holes = np.array([caissonHoles])
+        #self.barycenter = np.array(self.barycenter)
 
     def setAbsorptionZones(self, dragAlpha,allSponge=False,
                            x_n=False, x_p=False, 
@@ -1238,6 +1296,74 @@ class Tank3DwithCaisson(ShapeRANS):
                                                      dragBeta=dragBeta,
                                                      porosity=porosity,
                                                      smoothing=smoothing)
+
+    def setCaisson(self):
+        """
+        Set the caisson shape starting from tank object.
+        """
+        domain = self.domain
+        dim = self.caissonDim
+        vertices = self.vertices[:8]
+        vertexFlags = self.vertexFlags[:8]
+        facets = self.facets[:5]
+        facetFlags = self.facetFlags[:5]
+        barycenter = self.caissonCoords
+        self.caisson = CaissonDynamics(domain, dim, vertices, vertexFlags,
+                                  facets, facetFlags, barycenter)
+        self.caisson3D = bd.RigidBody(shape=self.caisson, substeps=20)
+        self.caisson3D.It = np.array(self.caisson.It)
+        self._attachAuxiliaryVariable(key='RigidBody',auxvar=self.caisson3D)
+
+
+class CaissonDynamics(ShapeRANS):
+    """
+    Class to create shape containing barycenter
+    to be used for caisson in BodyDynamics module.
+
+    Parameters
+    ----------
+    domain: proteus.Domain.D_base
+        Domain class instance that hold all the geometrical informations and
+        boundary conditions of the shape.
+    dim: array_like
+        Dimensions of the caisson.
+    vertices: array_like
+        Array of vertex coordinates.
+    vertexFlags: array_like
+        Array of vertex flags (used for boundary conditions)
+    facets: array_like
+        Array of facets (defined by clockwise or counterclockwise loop of
+        vertices).
+    facetFlags: array_like
+        Array of facet flags (used for boundary conditions).
+    barycenter: array_like
+        barycenter of the body.
+    """
+
+    count = 0
+
+    def __init__(self, domain, dim, vertices, vertexFlags,
+                 facets, facetFlags, barycenter):
+        super(CaissonDynamics, self).__init__(domain, nd=3)
+        self.__class__.count += 1
+        self.name = "caissondynamics" + str(self.__class__.count)
+        self.domain = domain
+        self.vertices = vertices
+        self.vertexFlags = vertexFlags
+        self.facets = facets
+        self.facetFlags = facetFlags
+        self.barycenter = np.array(barycenter)
+        self.Domain = domain
+        self.dim = L, W, H = dim  # length, width height
+        self.volume = L*W*H
+        self.coords = x, y, z = np.array(barycenter)
+        self.It = [[(W**2.+H**2.)/12., 0, 0],
+                   [0, (L**2.+H**2.)/12., 0],
+                   [0, 0, (W**2.+L**2.)/12.]]
+        self.nd = self.domain.nd
+        self.Domain = domain
+        self.coords_system = np.eye(self.nd)
+
 
 
 class Tank2D(ShapeRANS):

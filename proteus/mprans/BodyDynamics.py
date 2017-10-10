@@ -40,6 +40,7 @@ class RigidBody(AuxiliaryVariables.AV_base, object):
         self.i_end = None  # will be retrieved from setValues() of Domain
         self.It = self.Shape.It
         self.record_dict = OrderedDict()
+        self.coords_system = self.Shape.coords_system
         
         # variables        
         self.position = np.zeros(3)
@@ -586,6 +587,9 @@ class RigidBody(AuxiliaryVariables.AV_base, object):
                            [cx*cy, cy**2, cy*cz],
                            [cx*cz, cy*cz, cz**2]])
             # total moment of inertia
+            logEvent("self.It --> %s " % self.It)
+            logEvent("vt --> %s " % vt)
+            logEvent("vec --> %s " % vec)
             I = np.einsum('ij,ij->', self.mass*self.It, vt)
         return I
 
