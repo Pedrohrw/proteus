@@ -587,9 +587,6 @@ class RigidBody(AuxiliaryVariables.AV_base, object):
                            [cx*cy, cy**2, cy*cz],
                            [cx*cz, cy*cz, cz**2]])
             # total moment of inertia
-            logEvent("self.It --> %s " % self.It)
-            logEvent("vt --> %s " % vt)
-            logEvent("vec --> %s " % vec)
             I = np.einsum('ij,ij->', self.mass*self.It, vt)
         return I
 
