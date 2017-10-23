@@ -48,7 +48,7 @@ cdef class MeshAdaptPUMI:
     cdef double hmax, hmin
     cdef int numIter, numAdaptSteps
     cdef bint isReconstructed
-    def __cinit__(self, hmax=100.0, hmin=1e-8, numIter=10, sfConfig="ERM",maType="isotropic",logType="off",targetError=0,targetElementCount=0):
+    def __cinit__(self, hmax=100.0, hmin=1e-8, numIter=10, sfConfig="ERM",maType="test",logType="off",targetError=0,targetElementCount=0):
         logEvent("MeshAdaptPUMI: hmax = {0} hmin = {1} numIter = {2}".format(hmax,hmin,numIter))
         self.thisptr = new MeshAdaptPUMIDrvr(hmax, hmin, numIter, sfConfig,maType,logType,targetError,targetElementCount)
     def __dealloc__(self):
@@ -76,7 +76,7 @@ cdef class MeshAdaptPUMI:
         return self.thisptr.constructFromParallelPUMIMesh(cmesh_ptr.mesh, subdomain_cmesh_ptr.mesh)
     def updateMaterialArrays(self, cmesh, dim=None,bdryId=None, geomTag=None):
         cdef CMesh* cmesh_ptr = <CMesh*>cmesh
-        if(dim==None):
+        if(dim is None):
             return self.thisptr.updateMaterialArrays(cmesh_ptr.mesh)
         else:
             return self.thisptr.updateMaterialArrays(cmesh_ptr.mesh,dim, bdryId, geomTag)
