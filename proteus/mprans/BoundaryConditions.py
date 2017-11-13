@@ -1277,7 +1277,10 @@ class WallFunctions(AuxiliaryVariables.AV_base, object):
         # viscous layer
         if self.Ystar < 11.225:
             logEvent('Prescribed near-wall point outside log-law region!') 
-            sys.exit(1)
+            #sys.exit(1)
+            self.Ustar = self.Ystar
+            self.gradU = (self.utStar**2)/self.nu
+            self.uDir = self.tanU - (self.gradU*self.Y)
         # log-law layer
         else: 
             # Wall function theory from S.B. Pope, page 442-443
