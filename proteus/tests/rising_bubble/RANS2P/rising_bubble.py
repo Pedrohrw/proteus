@@ -18,7 +18,7 @@ opts=Context.Options([
     # tank
     ("tank_dim", (1.0 , 2.0), "Dimensions of the tank in m"),
     #gravity
-    ("g",(0,-9.81,0), "Gravity vector in m/s^2"),
+    ("g",(0,-0.981,0), "Gravity vector in m/s^2"),
     # probe dx
     ("dxProbe",0.25, "Probe spacing in m"),
     ("sigma",0.0,"Surface tension"),
@@ -45,11 +45,13 @@ tank_dim = opts.tank_dim
 #GOAL: rho_0=1000, nu_0=10. rho_1=100, nu_1=1, g=(0,-0.98,0)
 # Water
 rho_0 = 1000.0 #998.2
-nu_0 = 1.0e-1 #1.004e-6
+nu_0 = 10.0
+#nu_0 = 1.0e-1 #1.004e-6
 
 # Air
 rho_1 = 100.0 #1.205
-nu_1 = 1.0e-2 #1.500e-5
+nu_1 = 1.0
+#nu_1 = 1.0e-2 #1.500e-5
 
 # Surface Tension
 sigma_01 = opts.sigma
@@ -186,8 +188,8 @@ tank.attachLineIntegralGauges(
 
 # ----- EXTRA BOUNDARY CONDITIONS ----- #
 
-#tank.BC['y+'].setAtmosphere()
-tank.BC['y+'].setNoSlip()
+tank.BC['y+'].setAtmosphere()
+#tank.BC['y+'].setNoSlip()
 tank.BC['y-'].setNoSlip()
 tank.BC['x+'].setFreeSlip()
 tank.BC['x-'].setFreeSlip()
