@@ -987,6 +987,27 @@ namespace proteus
                                      angFriction);
       }
 
+      inline void Mult(const double mat[nSpace][nSpace],
+		       const double vec[nSpace],
+		       double mat_times_vector[nSpace])
+      {	
+	for (int I=0; I<nSpace; I++)
+	  {
+	    mat_times_vector[I] = 0.; 
+	    for (int J=0; J<nSpace; J++)
+	      mat_times_vector[I] += mat[I][J] * vec[J];
+	  }
+      }
+
+      inline double Dot(const double vec1[nSpace],
+			const double vec2[nSpace])
+      {
+	double dot = 0;
+	for (int I=0; I<nSpace; I++)
+	  dot += vec1[I]*vec2[I];
+	return dot;
+      }      
+      
       inline double smoothedHeaviside(double eps, double phi)
       {
         double H;
@@ -2482,7 +2503,9 @@ namespace proteus
                   dmom_v_source[nSpace],
                   dmom_w_source[nSpace],
                   //
-                  G[nSpace*nSpace],G_dd_G,tr_G,norm_Rv,h_phi, dmom_adv_star[nSpace],dmom_adv_sge[nSpace];
+                  G[nSpace*nSpace],G_dd_G,tr_G,norm_Rv,h_phi, dmom_adv_star[nSpace],dmom_adv_sge[nSpace],
+		  proj_times_vel_grad_test_i[nSpace],
+		  proj_times_grad_u[nSpace], proj_times_grad_v[nSpace];
                 //get jacobian, etc for mapping reference element
                 ck.calculateMapping_element(eN,
                                             k,
@@ -2976,9 +2999,48 @@ namespace proteus
                 // save divergence of velocity
                 q_divU[eN_k] = q_grad_u[eN_k_nSpace+0] + q_grad_v[eN_k_nSpace+1];
 
+		/////////////////////////////
+		// *** SURFACE TENSION *** //
+		/////////////////////////////
+		// mql. SURFACE TENSION via Laplace Beltrami
+		double unit_normal[nSpace];
+		// mql. NOTE: should we pass norm_grad_phi from the NCLS directly?
+		double norm_grad_phi = 0.; 
+		for (int I=0;I<nSpace;I++)
+		  norm_grad_phi += normal_phi[eN_k_nSpace+I]*normal_phi[eN_k_nSpace+I];
+		norm_grad_phi = std::sqrt(norm_grad_phi) + 1E-10;
+		for (int I=0;I<nSpace;I++)
+		  unit_normal[I] = normal_phi[eN_k_nSpace+I]/norm_grad_phi;
+		// compute projector: p=I-nn^T. This operator projects (.) into tangential space
+		double projector[nSpace][nSpace]; //I-nn^T
+		for (int I = 0; I < nSpace; ++I)
+		  for (int J = 0; J < nSpace; ++J)
+		    if (J==I)
+		      projector[I][J] = 1. - unit_normal[I] * unit_normal[J];
+		    else
+		      projector[I][J] = 0. - unit_normal[I] * unit_normal[J];
+		// compute auxiliary vectors for explicit term of surf tension
+		// compute projector: p=I-nn^T. This operator projects (.) into tangential space
+		// v1 = [projector[0][0] projector[0][1]]^T = [1-nx^2 -nx*ny]^T
+		double v1[nSpace];
+		v1[0]=1.-unit_normal[0]*unit_normal[0];
+		v1[1]=-unit_normal[0]*unit_normal[1];
+		// v2 = [projector[1][0] projector[1][1]]^T = [-nx*ny 1-ny^2]^T
+		double v2[nSpace];
+		v2[0]=-unit_normal[0]*unit_normal[1];
+		v2[1]=1.-unit_normal[1]*unit_normal[1];
+		
+		double dt = 1./alphaBDF;
+		double d_mu = (1.0-useVF)*smoothedDirac(eps_mu,phi[eN_k]); //NOTE, useVF=0
+
+		Mult(projector,grad_u,proj_times_grad_u);
+		Mult(projector,grad_v,proj_times_grad_v);
+		// END OF COMPUTING TERMS FOR SURFACE TENSION //
+		
                 for(int i=0;i<nDOF_test_element;i++) 
                   { 
                     register int i_nSpace=i*nSpace;
+		    Mult(projector,&vel_grad_trial[i_nSpace],proj_times_vel_grad_test_i);
                     /* std::cout<<"elemRes_mesh "<<mesh_vel[0]<<'\t'<<mesh_vel[2]<<'\t'<<p_test_dV[i]<<'\t'<<(q_dV_last[eN_k]/dV)<<'\t'<<dV<<std::endl; */
                     /* elementResidual_mesh[i] += ck.Reaction_weak(1.0,p_test_dV[i]) - */
                     /*   ck.Reaction_weak(1.0,p_test_dV[i]*q_dV_last[eN_k]/dV) - */
@@ -3003,7 +3065,13 @@ namespace proteus
                       ck.Diffusion_weak(sdInfo_u_v_rowptr,sdInfo_u_v_colind,mom_uv_diff_ten,grad_v,&vel_grad_test_dV[i_nSpace]) + 
                       /* ck.Diffusion_weak(sdInfo_u_w_rowptr,sdInfo_u_w_colind,mom_uw_diff_ten,grad_w,&vel_grad_test_dV[i_nSpace]) +  */
                       ck.Reaction_weak(mom_u_source,vel_test_dV[i]) + 
-                      ck.Hamiltonian_weak(mom_u_ham,vel_test_dV[i]) + 
+                      ck.Hamiltonian_weak(mom_u_ham,vel_test_dV[i]) +
+		      // SURFACE TENSION //
+		      //d_mu*sigma*proj_times_vel_grad_test_i[0]*dV +
+		      ck.NumericalDiffusion(d_mu*sigma*dV,v1,proj_times_vel_grad_test_i) +
+		      ck.NumericalDiffusion(dt*d_mu*sigma*dV,
+					    proj_times_grad_u,proj_times_vel_grad_test_i) +
+		      // END OF SURFACE TENSION //
                       ck.SubgridError(subgridError_p,Lstar_p_u[i]) +
                       ck.SubgridError(subgridError_u,Lstar_u_u[i]) + 
                       ck.NumericalDiffusion(q_numDiff_u_last[eN_k],grad_u,&vel_grad_test_dV[i_nSpace]); 
@@ -3015,7 +3083,13 @@ namespace proteus
                       ck.Diffusion_weak(sdInfo_v_v_rowptr,sdInfo_v_v_colind,mom_vv_diff_ten,grad_v,&vel_grad_test_dV[i_nSpace]) + 
                       /* ck.Diffusion_weak(sdInfo_v_w_rowptr,sdInfo_v_w_colind,mom_vw_diff_ten,grad_w,&vel_grad_test_dV[i_nSpace]) +  */
                       ck.Reaction_weak(mom_v_source,vel_test_dV[i]) + 
-                      ck.Hamiltonian_weak(mom_v_ham,vel_test_dV[i]) + 
+                      ck.Hamiltonian_weak(mom_v_ham,vel_test_dV[i]) +
+		      // SURFACE TENSION //
+		      //d_mu*sigma*proj_times_vel_grad_test_i[1]*dV +
+		      ck.NumericalDiffusion(d_mu*sigma*dV,v2,proj_times_vel_grad_test_i) +
+		      ck.NumericalDiffusion(dt*d_mu*sigma*dV,
+					    proj_times_grad_v,proj_times_vel_grad_test_i) +
+		      // END OF SURFACE TENSION //
                       ck.SubgridError(subgridError_p,Lstar_p_v[i]) +
                       ck.SubgridError(subgridError_v,Lstar_v_v[i]) + 
                       ck.NumericalDiffusion(q_numDiff_v_last[eN_k],grad_v,&vel_grad_test_dV[i_nSpace]); 
@@ -4288,7 +4362,8 @@ namespace proteus
                   dmom_w_source[nSpace],
                   mass_source,
                   //
-                  G[nSpace*nSpace],G_dd_G,tr_G,h_phi, dmom_adv_star[nSpace], dmom_adv_sge[nSpace];
+                  G[nSpace*nSpace],G_dd_G,tr_G,h_phi, dmom_adv_star[nSpace], dmom_adv_sge[nSpace],
+		  proj_times_vel_grad_test_i[nSpace], proj_times_vel_grad_test_j[nSpace];
                 //get jacobian, etc for mapping reference element
                 ck.calculateMapping_element(eN,
                                             k,
@@ -4803,12 +4878,41 @@ namespace proteus
 
 
                 //cek todo add RBLES terms consistent to residual modifications or ignore the partials w.r.t the additional RBLES terms
+
+		/////////////////////////////
+		// *** SURFACE TENSION *** //
+		/////////////////////////////
+		// mql. SURFACE TENSION via Laplace Beltrami
+		double unit_normal[nSpace];
+		// mql. NOTE: should we pass norm_grad_phi from the NCLS directly?
+		double norm_grad_phi = 0.; 
+		for (int I=0;I<nSpace;I++)
+		  norm_grad_phi += normal_phi[eN_k_nSpace+I]*normal_phi[eN_k_nSpace+I];
+		norm_grad_phi = std::sqrt(norm_grad_phi) + 1E-10;
+		for (int I=0;I<nSpace;I++)
+		  unit_normal[I] = normal_phi[eN_k_nSpace+I]/norm_grad_phi;
+		// compute projector: p=I-nn^T. This operator projects (.) into tangential space
+		double projector[nSpace][nSpace]; //I-nn^T
+		for (int I = 0; I < nSpace; ++I)
+		  for (int J = 0; J < nSpace; ++J)
+		    if (J==I)
+		      projector[I][J] = 1. - unit_normal[I] * unit_normal[J];
+		    else
+		      projector[I][J] = 0. - unit_normal[I] * unit_normal[J];		
+		double dt = 1./alphaBDF;
+		double d_mu = (1.0-useVF)*smoothedDirac(eps_mu,phi[eN_k]); //NOTE, useVF=0\
+		// END OF COMPUTING TERMS FOR SURFACE TENSION //
+		
                 for(int i=0;i<nDOF_test_element;i++)
                   {
                     register int i_nSpace = i*nSpace;
+		    Mult(projector,&vel_grad_trial[i_nSpace],proj_times_vel_grad_test_i);
                     for(int j=0;j<nDOF_trial_element;j++) 
                       {
                         register int j_nSpace = j*nSpace;
+			Mult(projector,&vel_grad_trial[j_nSpace],proj_times_vel_grad_test_j);
+			double surf_implicit = Dot(proj_times_vel_grad_test_i,
+						   proj_times_vel_grad_test_j);
                         /* elementJacobian_p_p[i][j] += ck.SubgridErrorJacobian(dsubgridError_u_p[j],Lstar_u_p[i]) +  */
                         /*   ck.SubgridErrorJacobian(dsubgridError_v_p[j],Lstar_v_p[i]);// +  */
                         /*   /\* ck.SubgridErrorJacobian(dsubgridError_w_p[j],Lstar_w_p[i]);  *\/ */
@@ -4828,8 +4932,11 @@ namespace proteus
                           ck.AdvectionJacobian_weak(dmom_u_adv_u,vel_trial_ref[k*nDOF_trial_element+j],&vel_grad_test_dV[i_nSpace]) +
                           ck.SimpleDiffusionJacobian_weak(sdInfo_u_u_rowptr,sdInfo_u_u_colind,mom_uu_diff_ten,&vel_grad_trial[j_nSpace],&vel_grad_test_dV[i_nSpace]) + 
                           //VRANS
-                          ck.ReactionJacobian_weak(dmom_u_source[0],vel_trial_ref[k*nDOF_trial_element+j],vel_test_dV[i]) +
+                          ck.ReactionJacobian_weak(dmom_u_source[0],vel_trial_ref[k*nDOF_trial_element+j],vel_test_dV[i]) +			  
                           //
+			  // SURFACE TENSION //
+			  dt*d_mu*sigma*surf_implicit*dV + 
+			  // END OF SURFACE TENSION //
                           ck.SubgridErrorJacobian(dsubgridError_p_u[j],Lstar_p_u[i]) +
                           ck.SubgridErrorJacobian(dsubgridError_u_u[j],Lstar_u_u[i]) + 
                           ck.NumericalDiffusionJacobian(q_numDiff_u_last[eN_k],&vel_grad_trial[j_nSpace],&vel_grad_test_dV[i_nSpace]); 
@@ -4864,6 +4971,9 @@ namespace proteus
                           //VRANS
                           ck.ReactionJacobian_weak(dmom_v_source[1],vel_trial_ref[k*nDOF_trial_element+j],vel_test_dV[i]) +
                           //
+			  // SURFACE TENSION //
+			  dt*d_mu*sigma*surf_implicit*dV +
+			  // END OF SURFACE TENSION //
                           ck.SubgridErrorJacobian(dsubgridError_p_v[j],Lstar_p_v[i]) +
                           ck.SubgridErrorJacobian(dsubgridError_v_v[j],Lstar_v_v[i]) + 
                           ck.NumericalDiffusionJacobian(q_numDiff_v_last[eN_k],&vel_grad_trial[j_nSpace],&vel_grad_test_dV[i_nSpace]); 
